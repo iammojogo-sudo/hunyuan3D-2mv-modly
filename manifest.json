@@ -2,9 +2,9 @@
   "id": "hunyuan3d2mv",
   "name": "Hunyuan3D-2mv",
   "type": "model",
-  "source": "https://github.com/iammojogo-sudo/hunyuan3d2mv_development_branch",
+  "source": "https://github.com/iammojogo-sudo/hunyuan3D-2mv-modly_DEV",
   "description": "Multi-view image-to-3D mesh generation using Tencent Hunyuan3D-2mv. Accepts front, left, back and right view images to reconstruct a detailed untextured mesh. Only the front view is required.",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "author": "iammojogo",
   "vram_gb": 8,
   "tags": [
@@ -309,18 +309,18 @@
           "id": "texture_variant",
           "label": "Texture Model",
           "type": "select",
-          "default": "hunyuan3d-paint-v2-0-turbo",
+          "default": "hunyuan3d-paint-v2-0",
           "options": [
-            {
-              "value": "hunyuan3d-paint-v2-0-turbo",
-              "label": "Turbo (faster)"
-            },
             {
               "value": "hunyuan3d-paint-v2-0",
               "label": "Standard (higher quality)"
+            },
+            {
+              "value": "hunyuan3d-paint-v2-0-turbo",
+              "label": "Turbo (faster)"
             }
           ],
-          "tooltip": "Turbo is faster; Standard produces more detailed textures."
+          "tooltip": "Standard produces significantly better textures. Turbo is faster but lower quality."
         },
         {
           "id": "remove_bg",
@@ -395,6 +395,86 @@
             }
           ],
           "tooltip": "Optional. Extra views improve texture coverage."
+        },
+        {
+          "id": "camera_mode",
+          "label": "Render Camera Views",
+          "type": "select",
+          "default": "4view",
+          "options": [
+            {
+              "value": "4view",
+              "label": "4-View: Front / Left / Back / Right (recommended)"
+            },
+            {
+              "value": "front_focus",
+              "label": "Front Focus: Single reference image"
+            },
+            {
+              "value": "6view",
+              "label": "6-View: Include Top & Bottom cameras"
+            }
+          ],
+          "tooltip": "Controls which cameras are used to project and bake texture onto the mesh. 4-View matches your available reference images and eliminates top/bottom camera artifacts. Front Focus is best when you only have one reference image."
+        },
+        {
+          "id": "skip_delight",
+          "label": "Skip Delight",
+          "type": "select",
+          "default": "false",
+          "options": [
+            {
+              "value": "false",
+              "label": "No (recommended for photos)"
+            },
+            {
+              "value": "true",
+              "label": "Yes (use for 2D/anime/stylized art)"
+            }
+          ],
+          "tooltip": "The delight model removes baked-in lighting from photos. Turn it OFF for 2D art, anime, or stylized renders."
+        },
+        {
+          "id": "bake_exp",
+          "label": "Bake Sharpness",
+          "type": "select",
+          "default": "4",
+          "options": [
+            {
+              "value": "2",
+              "label": "Soft (2) \u2014 smooth blends, fewer seams"
+            },
+            {
+              "value": "4",
+              "label": "Default (4)"
+            },
+            {
+              "value": "8",
+              "label": "Sharp (8) \u2014 crisper but more seams"
+            },
+            {
+              "value": "16",
+              "label": "Very Sharp (16)"
+            }
+          ],
+          "tooltip": "Controls how sharply camera views blend when baking the texture."
+        },
+        {
+          "id": "low_vram_mode",
+          "label": "Low VRAM Mode",
+          "type": "select",
+          "default": "false",
+          "options": [
+            {
+              "value": "false",
+              "label": "Off"
+            },
+            {
+              "value": "true",
+              "label": "On (8 GB GPUs)"
+            }
+          ],
+          "tooltip": "Offloads delight and paint models to CPU between steps. Required for 8 GB GPUs to avoid VRAM errors."
         }
       ]
     }
