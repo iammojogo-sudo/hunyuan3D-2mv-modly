@@ -1,17 +1,3 @@
-"""
-Hunyuan3D-2mv - Modly extension generator.
-
-Pipeline:
-  1. Preprocess the uploaded front image and any optional side views.
-  2. Run Hunyuan3DDiTFlowMatchingPipeline with front/left/back/right inputs.
-  3. Export an untextured GLB mesh to the Modly workspace.
-
-Texture node (separate):
-  1. Load the untextured GLB.
-  2. Preprocess front image (and optional side views) for the paint pipeline.
-  3. Run Hunyuan3DPaintPipeline to bake UV texture.
-  4. Export a textured GLB.
-"""
 import base64
 import io
 import os
@@ -51,6 +37,28 @@ _PAINT_SUBFOLDERS = {
 }
 
 _DELIGHT_SUBFOLDER = "hunyuan3d-delight-v2-0"
+
+# Camera presets for texture baking.
+# The pipeline always renders from all listed cameras regardless of how many
+# reference images were provided. Top/bottom cameras cause artifacts on characters
+# and portraits when only horizontal views are available, so 4-view is the default.
+_CAMERA_PRESETS = {
+    "4view": {
+        "azims":   [0,   90,  180, 270],
+        "elevs":   [0,    0,    0,   0],
+        "weights": [1,  0.1,  0.5, 0.1],
+    },
+    "6view": {
+        "azims":   [0,   90,  180, 270,    0,   180],
+        "elevs":   [0,    0,    0,   0,   90,   -90],
+        "weights": [1,  0.1,  0.5, 0.1, 0.05,  0.05],
+    },
+    "front_focus": {
+        "azims":   [0,    90,  180,  270],
+        "elevs":   [0,     0,    0,    0],
+        "weights": [1,  0.05,  0.2, 0.05],
+    },
+}
 
 # GLB files always start with these 4 magic bytes: "glTF"
 _GLB_MAGIC = b"glTF"
@@ -357,12 +365,23 @@ class Hunyuan3D2mvGenerator(BaseGenerator):
                 "On Windows, Visual Studio C++ build tools are also required." % exc
             ) from exc
 
-    def _load_paint_pipeline(self, paint_variant):
-        paint_variant = paint_variant if paint_variant in _PAINT_SUBFOLDERS else "hunyuan3d-paint-v2-0-turbo"
+    def _load_paint_pipeline(self, paint_variant, low_vram_mode=False):
+        paint_variant = paint_variant if paint_variant in _PAINT_SUBFOLDERS else "hunyuan3d-paint-v2-0"
         if self._loaded_paint_variant == paint_variant:
             return
 
         import torch
+
+        # Unload the shape pipeline first to free VRAM for the paint + delight models.
+        # Paint needs ~10 GB total; leaving the shape model loaded (~6 GB) causes
+        # VRAM pressure that silently degrades texture quality or forces CPU fallback.
+        if self._pipeline is not None:
+            print("[Hunyuan3D2mvGenerator] Unloading shape pipeline to free VRAM for paint...")
+            del self._pipeline
+            self._pipeline = None
+            self._loaded_variant = None
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
         print("[Hunyuan3D2mvGenerator] Loading paint variant: %s ..." % paint_variant)
         if self._paint_pipeline is not None:
@@ -384,6 +403,14 @@ class Hunyuan3D2mvGenerator(BaseGenerator):
             str(self.model_dir),
             subfolder=_PAINT_SUBFOLDERS[paint_variant],
         )
+
+        if low_vram_mode and torch.cuda.is_available():
+            print("[Hunyuan3D2mvGenerator] Enabling CPU offload for paint pipeline (low VRAM mode)...")
+            try:
+                self._paint_pipeline.enable_model_cpu_offload()
+            except Exception as exc:
+                print("[Hunyuan3D2mvGenerator] WARNING: CPU offload failed (non-fatal): %s" % exc)
+
         self._loaded_paint_variant = paint_variant
         print("[Hunyuan3D2mvGenerator] Paint variant loaded: %s" % paint_variant)
 
@@ -555,11 +582,19 @@ class Hunyuan3D2mvGenerator(BaseGenerator):
         import trimesh
 
         params        = params or {}
-        paint_variant = params.get("texture_variant") or "hunyuan3d-paint-v2-0-turbo"
+        paint_variant = params.get("texture_variant") or "hunyuan3d-paint-v2-0"
         remove_bg     = _safe_bool(params.get("remove_bg"), True)
+        low_vram_mode = _safe_bool(params.get("low_vram_mode"), False)
+        skip_delight  = _safe_bool(params.get("skip_delight"), False)
+        bake_exp      = _safe_int(params.get("bake_exp"), 4)
+        camera_mode   = params.get("camera_mode") or "4view"
 
-        print("[Hunyuan3D2mvGenerator] Texture params: variant=%s remove_bg=%s"
-              % (paint_variant, remove_bg))
+        print(
+            "[Hunyuan3D2mvGenerator] Texture params: variant=%s remove_bg=%s "
+            "low_vram=%s skip_delight=%s bake_exp=%s camera=%s"
+            % (paint_variant, remove_bg, low_vram_mode, skip_delight, bake_exp, camera_mode)
+        )
+
 
         # ---- Load mesh -----------------------------------------------
         self._report(progress_cb, 5, "Loading mesh...")
@@ -580,24 +615,30 @@ class Hunyuan3D2mvGenerator(BaseGenerator):
                 "Please supply the same front view used for shape generation."
             )
 
+        # Collect reference images
         images = [self._preprocess_path(front_path, remove_bg=remove_bg)]
+        print("[Hunyuan3D2mvGenerator] View front: loaded OK from %s" % front_path)
 
         for view_name, pct in (("left", 12), ("back", 15), ("right", 18)):
+            path_key = "%s_image_path" % view_name
+            raw_path = params.get(path_key, "")
             img = self._optional_view_image(params, view_name, remove_bg)
             if img is None:
+                print("[Hunyuan3D2mvGenerator] View %s: NOT loaded (raw=%r)" % (view_name, raw_path))
                 continue
+            print("[Hunyuan3D2mvGenerator] View %s: loaded OK" % view_name)
             self._report(progress_cb, pct, "Preprocessing %s view..." % view_name)
             images.append(img)
             self._check_cancelled(cancel_event)
 
-        print("[Hunyuan3D2mvGenerator] Using %d reference image(s) for texturing." % len(images))
+        print("[Hunyuan3D2mvGenerator] Passing %d image(s) to paint pipeline." % len(images))
 
-        # ---- Load paint pipeline -------------------------------------
+        # ---- Load paint pipeline and apply texture ------------------
         self._report(progress_cb, 20, "Loading texture pipeline...")
-        self._load_paint_pipeline(paint_variant)
+        self._load_paint_pipeline(paint_variant, low_vram_mode=low_vram_mode)
+        self._apply_texture_overrides(skip_delight, bake_exp, camera_mode)
         self._check_cancelled(cancel_event)
 
-        # ---- Run texture pipeline ------------------------------------
         self._report(progress_cb, 25, "Applying texture...")
         stop_evt   = threading.Event()
         tex_thread = None
@@ -610,7 +651,7 @@ class Hunyuan3D2mvGenerator(BaseGenerator):
             tex_thread.start()
 
         try:
-            textured_mesh = self._paint_pipeline(mesh, images)
+            textured_mesh = self._paint_pipeline(mesh, image=images)
         finally:
             stop_evt.set()
             if tex_thread:
@@ -634,6 +675,65 @@ class Hunyuan3D2mvGenerator(BaseGenerator):
         return str(out_path)
 
     # ------------------------------------------------------------------
+    # Direct UV projection
+    # ------------------------------------------------------------------
+
+    # Camera angle for each named view (elev, azim)
+    _VIEW_ANGLES = {
+        "front": (0,   0),
+        "left":  (0,  90),
+        "back":  (0, 180),
+        "right": (0, 270),
+    }
+    # Equal weights for direct projection — each view is authoritative for
+    # its own faces. The cosine weighting in back_project already naturally
+    # reduces contribution for faces pointing away from a camera, so explicit
+    # priority weights are not needed and can cause incorrect overrides.
+    _VIEW_WEIGHTS = {
+        "front": 1.0,
+        "back":  1.0,
+        "left":  1.0,
+        "right": 1.0,
+    }
+
+
+    def _apply_texture_overrides(self, skip_delight, bake_exp, camera_mode):
+        """
+        Apply runtime overrides to the loaded paint pipeline without modifying
+        the upstream source. Called immediately after _load_paint_pipeline().
+        """
+        import types
+
+        # -- Bake exponent ---------------------------------------------------
+        # Controls how sharply camera views blend at bake time.
+        # Higher = crisper but more visible seams. Lower = smoother blends.
+        self._paint_pipeline.config.bake_exp = bake_exp
+
+        # -- Skip delight ----------------------------------------------------
+        # Replace the delight model with a passthrough so the pipeline call
+        # signature stays identical but the step is a no-op.
+        # Useful for 2D/anime art, stylized renders, or pre-lit images where
+        # the delight model misinterprets flat shading as baked-in lighting.
+        if skip_delight:
+            class _DelightPassthrough:
+                def __call__(self, image):
+                    return image
+            self._paint_pipeline.models["delight_model"] = _DelightPassthrough()
+            print("[Hunyuan3D2mvGenerator] Delight step bypassed.")
+
+        # -- Camera preset ---------------------------------------------------
+        # Override which cameras are rendered and how much each contributes
+        # to the final baked texture. Removing top/bottom eliminates the
+        # chest/collar artifact caused by the top camera projecting onto
+        # curved front-facing geometry on characters and portraits.
+        preset = _CAMERA_PRESETS.get(camera_mode, _CAMERA_PRESETS["4view"])
+        self._paint_pipeline.config.candidate_camera_azims  = preset["azims"]
+        self._paint_pipeline.config.candidate_camera_elevs  = preset["elevs"]
+        self._paint_pipeline.config.candidate_view_weights  = preset["weights"]
+        print("[Hunyuan3D2mvGenerator] Camera preset: %s — %d cameras"
+              % (camera_mode, len(preset["azims"])))
+
+    # ------------------------------------------------------------------
     # Image helpers
     # ------------------------------------------------------------------
 
@@ -641,9 +741,17 @@ class Hunyuan3D2mvGenerator(BaseGenerator):
         path_key = "%s_image_path" % view_name
         data_key = "%s_image" % view_name
 
+
         path = params.get(path_key)
         if isinstance(path, str):
-            path = path.strip().strip('"\'')
+            path = path.strip().strip(chr(34) + chr(39))
+        if path and not os.path.isfile(path):
+            # Try broader quote stripping in case of unicode quote chars
+            for _chars in (chr(0x201c)+chr(0x201d)+chr(0x2018)+chr(0x2019)+chr(34)+chr(39)+chr(32),):
+                _alt = path.strip(_chars)
+                if _alt and os.path.isfile(_alt):
+                    path = _alt
+                    break
         if path and os.path.isfile(path):
             return self._preprocess_path(path, remove_bg=remove_bg)
 
@@ -673,11 +781,17 @@ class Hunyuan3D2mvGenerator(BaseGenerator):
         return self._preprocess_bytes(raw, remove_bg=remove_bg)
 
     def _preprocess_bytes(self, image_bytes, remove_bg=True):
-        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        img = Image.open(io.BytesIO(image_bytes))
+        if img.mode == "RGBA":
+            return img if remove_bg else img.convert("RGB")
+        img = img.convert("RGB")
         return self._remove_bg(img) if remove_bg else img
 
     def _preprocess_path(self, path, remove_bg=True):
-        img = Image.open(path).convert("RGB")
+        img = Image.open(path)
+        if img.mode == "RGBA":
+            return img if remove_bg else img.convert("RGB")
+        img = img.convert("RGB")
         return self._remove_bg(img) if remove_bg else img
 
     def _remove_bg(self, img):
@@ -733,7 +847,7 @@ class Hunyuan3D2mvGenerator(BaseGenerator):
 
 
 # ---------------------------------------------------------------------------
-# Variant subclasses
+# Variant subclasses (legacy / standalone nodes)
 # ---------------------------------------------------------------------------
 
 class Hunyuan3D2mvTurboGenerator(Hunyuan3D2mvGenerator):
