@@ -4,7 +4,7 @@
   "type": "model",
   "source": "https://github.com/iammojogo-sudo/hunyuan3D-2mv-modly_DEV",
   "description": "Multi-view image-to-3D mesh generation using Tencent Hunyuan3D-2mv. Accepts front, left, back and right view images to reconstruct a detailed untextured mesh. Only the front view is required.",
-  "version": "2.0.0",
+  "version": "1.2.1",
   "author": "iammojogo",
   "vram_gb": 8,
   "tags": [
