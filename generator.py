@@ -542,7 +542,7 @@ class Hunyuan3D2mvGenerator(BaseGenerator):
         # Save front image and view paths so the texture step can auto-populate
         # its params without the user having to fill them in manually.
         try:
-            front_save = self.model_dir / "last_front_image.png"
+            front_save = self.model_dir.parent / "last_front_image.png"
             Image.open(io.BytesIO(image_bytes)).save(str(front_save), format="PNG")
             views = {
                 "front": str(front_save),
@@ -550,7 +550,7 @@ class Hunyuan3D2mvGenerator(BaseGenerator):
                 "back":  params.get("back_image_path",  "") or "",
                 "right": params.get("right_image_path", "") or "",
             }
-            (self.model_dir / "last_views.json").write_text(
+            (self.model_dir.parent / "last_views.json").write_text(
                 json.dumps(views), encoding="utf-8"
             )
         except Exception as e:
@@ -577,7 +577,7 @@ class Hunyuan3D2mvGenerator(BaseGenerator):
 
             # Auto-populate view paths from the last generation run.
             # Only fills in fields the user left blank — manual paths always win.
-            sidecar = self.model_dir / "last_views.json"
+            sidecar = self.model_dir.parent / "last_views.json"
             if sidecar.exists():
                 try:
                     views = json.loads(sidecar.read_text(encoding="utf-8"))
