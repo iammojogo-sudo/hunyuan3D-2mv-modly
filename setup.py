@@ -535,8 +535,11 @@ def _build_custom_rasterizer(venv_python, rast_dir):
 def setup(python_exe, ext_dir, gpu_sm):
     venv = ext_dir / "venv"
 
-    print("[setup] Creating venv at %s ..." % venv)
-    subprocess.run([str(python_exe), "-m", "venv", str(venv)], check=True)
+    if not venv.exists():
+        print("[setup] Creating venv at %s ..." % venv)
+        subprocess.run([str(python_exe), "-m", "venv", str(venv)], check=True)
+    else:
+        print("[setup] Venv exists, skipping creation.")
 
     venv_python = python_exe_in_venv(venv)
 
