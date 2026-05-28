@@ -1,5 +1,6 @@
 import base64
 import io
+import json
 import os
 import sys
 import tempfile
@@ -538,6 +539,23 @@ class Hunyuan3D2mvGenerator(BaseGenerator):
         mesh.export(str(out_path))
         print("[Hunyuan3D2mvGenerator] Exported GLB to: %s" % out_path)
 
+        # Save front image and view paths so the texture step can auto-populate
+        # its params without the user having to fill them in manually.
+        try:
+            front_save = self.model_dir / "last_front_image.png"
+            Image.open(io.BytesIO(image_bytes)).save(str(front_save), format="PNG")
+            views = {
+                "front": str(front_save),
+                "left":  params.get("left_image_path",  "") or "",
+                "back":  params.get("back_image_path",  "") or "",
+                "right": params.get("right_image_path", "") or "",
+            }
+            (self.model_dir / "last_views.json").write_text(
+                json.dumps(views), encoding="utf-8"
+            )
+        except Exception as e:
+            print("[Hunyuan3D2mvGenerator] Could not write view sidecar: %s" % e)
+
         self._report(progress_cb, 100, "Done")
         return str(out_path)
 
@@ -556,6 +574,27 @@ class Hunyuan3D2mvGenerator(BaseGenerator):
                 f.write(glb_bytes)
                 tmp_path = f.name
             print("[Hunyuan3D2mvGenerator] Saved GLB to temp: %s" % tmp_path)
+
+            # Auto-populate view paths from the last generation run.
+            # Only fills in fields the user left blank — manual paths always win.
+            sidecar = self.model_dir / "last_views.json"
+            if sidecar.exists():
+                try:
+                    views = json.loads(sidecar.read_text(encoding="utf-8"))
+                    mapping = {
+                        "front_image_path": "front",
+                        "left_image_path":  "left",
+                        "back_image_path":  "back",
+                        "right_image_path": "right",
+                    }
+                    for param_key, view_key in mapping.items():
+                        saved = views.get(view_key, "")
+                        if not params.get(param_key) and saved and os.path.isfile(saved):
+                            params[param_key] = saved
+                            print("[Hunyuan3D2mvGenerator] Auto-set %s from last generation" % param_key)
+                except Exception as e:
+                    print("[Hunyuan3D2mvGenerator] Could not read view sidecar: %s" % e)
+
             return self.texture(tmp_path, params, progress_cb, cancel_event)
         finally:
             if tmp_path and os.path.exists(tmp_path):
