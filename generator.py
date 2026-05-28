@@ -589,9 +589,9 @@ class Hunyuan3D2mvGenerator(BaseGenerator):
                     }
                     for param_key, view_key in mapping.items():
                         saved = views.get(view_key, "")
-                        if not params.get(param_key) and saved and os.path.isfile(saved):
+                        if not params.get(param_key) and saved:
                             params[param_key] = saved
-                            print("[Hunyuan3D2mvGenerator] Auto-set %s from last generation" % param_key)
+                            print("[Hunyuan3D2mvGenerator] Auto-set %s -> %s" % (param_key, saved))
                 except Exception as e:
                     print("[Hunyuan3D2mvGenerator] Could not read view sidecar: %s" % e)
 
@@ -651,7 +651,9 @@ class Hunyuan3D2mvGenerator(BaseGenerator):
         if not front_path or not os.path.isfile(front_path):
             raise RuntimeError(
                 "front_image_path is required for texture generation. "
-                "Please supply the same front view used for shape generation."
+                "Run the Generate Mesh node first so the path is passed through automatically, "
+                "or set it manually in the Apply Texture params. "
+                "Got: %r" % front_path
             )
 
         # Collect reference images
