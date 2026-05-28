@@ -578,9 +578,11 @@ class Hunyuan3D2mvGenerator(BaseGenerator):
             # Auto-populate view paths from the last generation run.
             # Only fills in fields the user left blank — manual paths always win.
             sidecar = self.model_dir.parent / "last_views.json"
+            print("[Hunyuan3D2mvGenerator] Looking for sidecar at: %s (exists=%s)" % (sidecar, sidecar.exists()))
             if sidecar.exists():
                 try:
                     views = json.loads(sidecar.read_text(encoding="utf-8"))
+                    print("[Hunyuan3D2mvGenerator] Sidecar contents: %s" % views)
                     mapping = {
                         "front_image_path": "front",
                         "left_image_path":  "left",
@@ -594,6 +596,8 @@ class Hunyuan3D2mvGenerator(BaseGenerator):
                             print("[Hunyuan3D2mvGenerator] Auto-set %s -> %s" % (param_key, saved))
                 except Exception as e:
                     print("[Hunyuan3D2mvGenerator] Could not read view sidecar: %s" % e)
+            else:
+                print("[Hunyuan3D2mvGenerator] No sidecar found - run Generate Mesh first to auto-populate paths")
 
             return self.texture(tmp_path, params, progress_cb, cancel_event)
         finally:
