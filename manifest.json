@@ -4,7 +4,7 @@
   "type": "model",
   "source": "https://github.com/iammojogo-sudo/hunyuan3D-2mv-modly_DEV",
   "description": "Multi-view image-to-3D mesh generation using Tencent Hunyuan3D-2mv. Accepts front, left, back and right view images to reconstruct a detailed untextured mesh. Only the front view is required.",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "author": "iammojogo",
   "vram_gb": 8,
   "tags": [
@@ -68,7 +68,19 @@
             {
               "value": 50,
               "label": "Quality (50)"
-            }
+            },
+            {
+              "value": 75,
+              "label": "High Quality (75)"
+            },
+            {
+              "value": 100,
+              "label": "Higher Quality (100)"
+            },
+            {
+              "value": 200,
+              "label": "Highest Quality (200)"
+            },
           ],
           "tooltip": "Number of diffusion steps."
         },
@@ -89,6 +101,14 @@
             {
               "value": 512,
               "label": "High (512)"
+            },
+            {
+              "value": 1024,
+              "label": "Higher (1024)"
+            },
+            {
+              "value": 2048,
+              "label": "Highest (2048)"
             }
           ],
           "tooltip": "Octree resolution. Higher values use more VRAM."
@@ -135,6 +155,10 @@
             {
               "value": 20000,
               "label": "Fast (20000)"
+            },
+            {
+              "value": 40000,
+              "label": "Faster (40000)"
             }
           ],
           "tooltip": "VAE decode chunk size. Lower values reduce VRAM usage."
