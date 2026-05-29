@@ -80,7 +80,7 @@
             {
               "value": 200,
               "label": "Highest Quality (200)"
-            },
+            }
           ],
           "tooltip": "Number of diffusion steps."
         },
@@ -466,7 +466,7 @@
           "options": [
             {
               "value": "2",
-              "label": "Soft (2) \u2014 smooth blends, fewer seams"
+              "label": "Soft (2) — smooth blends, fewer seams"
             },
             {
               "value": "4",
@@ -474,7 +474,7 @@
             },
             {
               "value": "8",
-              "label": "Sharp (8) \u2014 crisper but more seams"
+              "label": "Sharp (8) — crisper but more seams"
             },
             {
               "value": "16",
