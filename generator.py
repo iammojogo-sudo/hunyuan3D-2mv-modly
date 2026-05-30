@@ -201,8 +201,41 @@ class Hunyuan3D2mvGenerator(BaseGenerator):
             device=self._device,
             local_files_only=True,
         )
+        self._patch_scheduler_overflow()
         self._loaded_variant = variant
         print("[Hunyuan3D2mvGenerator] Variant loaded: %s" % variant)
+
+    def _patch_scheduler_overflow(self):
+        """
+        High step counts (e.g. 200) can make the flow-match scheduler index one
+        past the end of its N+1 sigma table on the final step -> IndexError as
+        diffusion finishes. Force a 0 start and clamp the last index in bounds.
+        """
+        import types
+
+        sched = getattr(self._pipeline, "scheduler", None)
+        if sched is None or not hasattr(sched, "sigmas_"):
+            return
+        if getattr(sched, "_overflow_patched", False):
+            return
+
+        _orig_step = sched.step
+
+        def _safe_step(self, model_output, timestep, sample, *args, **kwargs):
+            n = len(self.sigmas_)
+            if getattr(self, "_step_index", None) is None:
+                self._step_index = 0
+            elif self._step_index > n - 2:
+                self._step_index = n - 2
+            try:
+                return _orig_step(model_output, timestep, sample, *args, **kwargs)
+            except IndexError:
+                self._step_index = n - 2
+                return _orig_step(model_output, timestep, sample, *args, **kwargs)
+
+        sched.step = types.MethodType(_safe_step, sched)
+        sched._overflow_patched = True
+        print("[Hunyuan3D2mvGenerator] Scheduler step_index overflow guard applied.")
 
     def _ensure_custom_rasterizer_importable(self):
         """
