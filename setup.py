@@ -364,7 +364,7 @@ if __name__ == "__main__":
         setup(
             python_exe=sys.argv[1],
             ext_dir=Path(sys.argv[2]),
-            gpu_sm=int(sys.argv[3]),
+            gpu_sm=int(sys.argv[3]),  # Added [3]
         )
     elif len(sys.argv) == 2:
         args = json.loads(sys.argv[1])
@@ -377,3 +377,4 @@ if __name__ == "__main__":
         print("Usage: python setup.py <python_exe> <ext_dir> <gpu_sm>")
         print('   or: python setup.py \'{"python_exe":"...","ext_dir":"...","gpu_sm":89}\'')
         sys.exit(1)
+
