@@ -201,11 +201,11 @@ def setup(python_exe, ext_dir, gpu_sm):
     # PyTorch
     # ------------------------------------------------------------------ #
     if gpu_sm >= 100:
-        torch_index = "https://download.pytorch.org/whl/cu128"
+        torch_index = "https://pytorch.org"
         torch_pkgs = ["torch>=2.7.0", "torchvision>=0.22.0", "torchaudio>=2.7.0"]
         print("[setup] SM %d (Blackwell) -> PyTorch 2.7 + CUDA 12.8" % gpu_sm)
     elif gpu_sm >= 70:
-        torch_index = "https://download.pytorch.org/whl/cu124"
+        torch_index = "https://pytorch.org"
         torch_pkgs = ["torch==2.6.0", "torchvision==0.21.0", "torchaudio==2.6.0"]
         print("[setup] SM %d -> PyTorch 2.6.0 + CUDA 12.4" % gpu_sm)
     else:
@@ -222,20 +222,16 @@ def setup(python_exe, ext_dir, gpu_sm):
     print("[setup] Installing xformers...")
     if gpu_sm >= 70:
         try:
-            # Try to grab a compatible xformers version from the custom torch index first
             print("[setup] Attempting installation from torch index...")
             pip(venv, "install", "xformers>=0.0.28", "--index-url", torch_index)
         except Exception:
-            # Fallback to PyPI if the specific whl is missing on the PyTorch index
             print("[setup] Torch index match failed. Falling back to standard PyPI registry...")
             pip(venv, "install", "xformers>=0.0.28")
     else:
-        # Standard legacy fallback
         try:
             pip(venv, "install", "xformers>=0.0.28", "--index-url", "https://download.pytorch.org/whl/cu118")
         except Exception:
             pip(venv, "install", "xformers>=0.0.28")
-
 
     # ------------------------------------------------------------------ #
     # Core dependencies
@@ -257,7 +253,6 @@ def setup(python_exe, ext_dir, gpu_sm):
         "rembg",
     )
 
-    # triton: Linux-only; skip silently on Windows (xformers will warn but still work)
     if not IS_WIN:
         try:
             pip(venv, "install", "triton")
@@ -296,9 +291,7 @@ def setup(python_exe, ext_dir, gpu_sm):
     # Setup custom_rasterizer (Check for bundled .pyd wrapper first)
     # ------------------------------------------------------------------ #
     print("[setup] Setting up custom_rasterizer...")
-    
-    # Path to where your bundled .pyd and its setup files live
-    local_rast_dir = Path("./hunyuan3d2mv/texgen/custom_rasterizer")
+    local_rast_dir = ext_dir / "hunyuan3d2mv" / "texgen" / "custom_rasterizer"
     rast_ok = False
 
     if local_rast_dir.exists():
@@ -315,7 +308,6 @@ def setup(python_exe, ext_dir, gpu_sm):
         print("[setup] Bundled .pyd unavailable/incompatible. Attempting local build fallback via ninja...")
         try:
             pip(venv, "install", "ninja")
-            # Using your existing helper function to attempt a source compilation
             rast_ok = _build_custom_rasterizer(venv_python, rast_dir)
         except Exception as compile_err:
             print(f"[setup] Local build runner crashed: {compile_err}")
@@ -342,23 +334,6 @@ def setup(python_exe, ext_dir, gpu_sm):
     # ------------------------------------------------------------------ #
     print("[setup] Pinning transformers to safe version...")
     pip(venv, "install", "transformers>=4.48.0,<4.52.0")
-
-    print("[setup] Setting up custom_rasterizer...")
-    try:
-        # Since the .pyd is present, this will link/copy the package instantly with zero compilation
-        print("[setup] Registering local custom_rasterizer containing pre-built .pyd wrapper...")
-        pip(venv, "install", "./hunyuan3d2mv/texgen/custom_rasterizer")
-    except Exception as e:
-        # Fallback if something goes wrong with the path tracking
-        print(f"[setup] Quick registration skipped: {e}. Attempting local build fallback via ninja...")
-        try:
-            pip(venv, "install", "ninja")
-            pip(venv, "install", "./hunyuan3d2mv/texgen/custom_rasterizer")
-        except Exception as compile_err:
-            print(f"[setup] CRITICAL ERROR: Local build failed: {compile_err}")
-            print("[setup] Please ensure Python 3.11 and Microsoft Visual C++ Build Tools match your system.")
-
-
 
     # ------------------------------------------------------------------ #
     # Final import verification
