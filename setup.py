@@ -255,6 +255,7 @@ def setup(python_exe, ext_dir, gpu_sm):
         "tqdm",
         "safetensors",
         "rembg",
+        "ninja",
     )
 
     # triton: Linux-only; skip silently on Windows (xformers will warn but still work)
