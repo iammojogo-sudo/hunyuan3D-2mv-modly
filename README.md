@@ -25,3 +25,6 @@ Missing Models: If components are present but "not found," install the VC Redist
 VRAM: 6GB (Minimum) | 8GB+ (Recommended).
 Efficiency: The Turbo model is more memory-efficient than Standard.
 Updates: Currently, multi-image input is being patched. Until then, the system defaults to a single front-view image.
+
+
+-If you get a compilation error while building the C++ extension custom_rasterizer, please contact me on discord via the community extensions tab as this is likely due to running the app instead of going through the launch.bat directly. I can fix that if anyone has issues with that. 
