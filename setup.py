@@ -49,7 +49,7 @@ def _resolve_cuda_home():
         key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
             r"SOFTWARE\NVIDIA Corporation\GPU Computing Toolkit\CUDA")
         versions = []
-        for i in range(winreg.QueryInfoKey(key)):
+        for i in range(winreg.QueryInfoKey(key)[0]):
             try:
                 sk = winreg.OpenKey(key, winreg.EnumKey(key, i))
                 p, _ = winreg.QueryValueEx(sk, "InstallDir")
@@ -65,7 +65,7 @@ def _resolve_cuda_home():
     if cuda_base.exists():
         dirs = sorted([d for d in cuda_base.iterdir() if d.is_dir()], reverse=True)
         if dirs:
-            return str(dirs)
+            return str(dirs[0])
     return None
 
 
@@ -81,16 +81,26 @@ def _find_cl_exe():
             for cl in base_p.rglob("cl.exe"):
                 if "x64" in str(cl) or "amd64" in str(cl).lower():
                     candidates.append(cl)
-    return candidates if candidates else None
+    return candidates[0] if candidates else None
 
 
 def _build_custom_rasterizer(venv_python, rast_dir):
+    """
+    Build the custom_rasterizer C extension in-place and copy it to site-packages.
+
+    On Windows:
+      - ninja must be on PATH (installed before this call).
+      - MSVC cl.exe must be reachable; we try to locate it automatically.
+      - After build, the .pyd is copied to site-packages so the bare
+        `import custom_rasterizer` resolves regardless of cwd / sys.path.
+    """
     rast_dir = Path(rast_dir)
 
     print("[setup] Building custom_rasterizer in %s ..." % rast_dir)
 
     env = os.environ.copy()
 
+    # Inject CUDA_HOME so torch's cpp_extension finds the toolkit
     cuda_home = _resolve_cuda_home()
     if cuda_home:
         env["CUDA_HOME"] = cuda_home
@@ -100,9 +110,11 @@ def _build_custom_rasterizer(venv_python, rast_dir):
         print("[setup] WARNING: Could not auto-detect CUDA_HOME.")
 
     if IS_WIN:
+        # Ensure venv Scripts (ninja, etc.) are on PATH
         venv_scripts = venv_python.parent
         env["PATH"] = str(venv_scripts) + os.pathsep + env.get("PATH", "")
 
+        # Inject MSVC cl.exe if not already visible
         if shutil.which("cl") is None:
             cl = _find_cl_exe()
             if cl:
@@ -128,6 +140,7 @@ def _build_custom_rasterizer(venv_python, rast_dir):
         )
         return False
 
+    # Find the compiled artifact (the kernel module name is custom_rasterizer_kernel)
     built = (
         list(rast_dir.glob("custom_rasterizer_kernel*.pyd")) +
         list(rast_dir.glob("custom_rasterizer_kernel*.so"))
@@ -136,9 +149,10 @@ def _build_custom_rasterizer(venv_python, rast_dir):
         print("[setup] WARNING: build reported success but no .pyd/.so found in %s." % rast_dir)
         return False
 
-    artifact = built
+    artifact = built[0]
     print("[setup] custom_rasterizer built: %s" % artifact)
 
+    # Copy to venv site-packages so bare `import custom_rasterizer` always works
     try:
         if IS_WIN:
             site_pkgs = venv_python.parent.parent / "Lib" / "site-packages"
@@ -152,7 +166,9 @@ def _build_custom_rasterizer(venv_python, rast_dir):
         print("[setup] Installed %s -> %s" % (artifact.name, site_pkgs))
     except Exception as exc:
         print("[setup] Note: could not copy rasterizer to site-packages (%s)." % exc)
+        print("[setup]   The extension dir must stay on sys.path at runtime.")
 
+    # Also copy back to extension root so it can be committed to the repo
     try:
         ext_dir = Path(__file__).parent
         ext_dest = ext_dir / artifact.name
@@ -175,55 +191,82 @@ def setup(python_exe, ext_dir, gpu_sm):
 
     venv_python = python_exe_in_venv(venv)
 
+    # ------------------------------------------------------------------ #
+    # Build prerequisites — ninja first so the rasterizer can find it
+    # ------------------------------------------------------------------ #
     print("[setup] Installing build prerequisites (ninja, setuptools, wheel)...")
     pip(venv, "install", "ninja", "setuptools", "wheel")
 
     # ------------------------------------------------------------------ #
-    # PyTorch & xformers Installation Block (Using explicit commands)
+    # PyTorch
     # ------------------------------------------------------------------ #
     if gpu_sm >= 100:
+        torch_index = "https://download.pytorch.org/whl/cu128"
+        torch_pkgs = ["torch>=2.7.0", "torchvision>=0.22.0", "torchaudio>=2.7.0"]
         print("[setup] SM %d (Blackwell) -> PyTorch 2.7 + CUDA 12.8" % gpu_sm)
-        pip(venv, "install", "torch>=2.7.0", "torchvision>=0.22.0", "torchaudio>=2.7.0", "--index-url", "https://pytorch.org")
-        print("[setup] Installing xformers...")
-        try:
-            pip(venv, "install", "xformers>=0.0.28", "--index-url", "https://pytorch.org")
-        except Exception:
-            pip(venv, "install", "xformers>=0.0.28")
-
     elif gpu_sm >= 70:
+        torch_index = "https://download.pytorch.org/whl/cu124"
+        torch_pkgs = ["torch==2.6.0", "torchvision==0.21.0", "torchaudio==2.6.0"]
         print("[setup] SM %d -> PyTorch 2.6.0 + CUDA 12.4" % gpu_sm)
-        pip(venv, "install", "torch==2.6.0", "torchvision==0.21.0", "torchaudio==2.6.0", "--index-url", "https://pytorch.org")
-        print("[setup] Installing xformers...")
+    else:
+        torch_index = "https://download.pytorch.org/whl/cu118"
+        torch_pkgs = ["torch==2.5.1", "torchvision==0.20.1", "torchaudio==2.5.1"]
+        print("[setup] SM %d (legacy) -> PyTorch 2.5.1 + CUDA 11.8" % gpu_sm)
+
+    print("[setup] Installing PyTorch...")
+    pip(venv, "install", *torch_pkgs, "--index-url", torch_index)
+
+    # ------------------------------------------------------------------ #
+    # xformers  (the Triton warning at runtime is harmless on Windows)
+    # ------------------------------------------------------------------ #
+    print("[setup] Installing xformers...")
+    if gpu_sm >= 70:
         try:
-            pip(venv, "install", "xformers>=0.0.28", "--index-url", "https://pytorch.org")
+            # Try to grab a compatible xformers version from the custom torch index first
+            print("[setup] Attempting installation from torch index...")
+            pip(venv, "install", "xformers>=0.0.28", "--index-url", torch_index)
+        except Exception:
+            # Fallback to PyPI if the specific whl is missing on the PyTorch index
+            print("[setup] Torch index match failed. Falling back to standard PyPI registry...")
+            pip(venv, "install", "xformers>=0.0.28")
+    else:
+        # Standard legacy fallback
+        try:
+            pip(venv, "install", "xformers>=0.0.28", "--index-url", "https://download.pytorch.org/whl/cu118")
         except Exception:
             pip(venv, "install", "xformers>=0.0.28")
 
-    else:
-        print("[setup] SM %d (legacy) -> PyTorch 2.5.1 + CUDA 11.8" % gpu_sm)
-        pip(venv, "install", "torch==2.5.1", "torchvision==0.20.1", "torchaudio==2.5.1", "--index-url", "https://pytorch.org")
-        print("[setup] Installing xformers...")
-        try:
-            pip(venv, "install", "xformers>=0.0.28", "--index-url", "https://pytorch.org")
-        except Exception:
-            pip(venv, "install", "xformers>=0.0.28")
 
     # ------------------------------------------------------------------ #
     # Core dependencies
     # ------------------------------------------------------------------ #
     print("[setup] Installing core dependencies...")
     pip(venv, "install",
-        "accelerate", "omegaconf", "einops", "Pillow", "numpy", "scipy",
-        "trimesh", "pymeshlab", "pygltflib", "opencv-python-headless",
-        "tqdm", "safetensors", "rembg",
+        "accelerate",
+        "omegaconf",
+        "einops",
+        "Pillow",
+        "numpy",
+        "scipy",
+        "trimesh",
+        "pymeshlab",
+        "pygltflib",
+        "opencv-python-headless",
+        "tqdm",
+        "safetensors",
+        "rembg",
     )
 
+    # triton: Linux-only; skip silently on Windows (xformers will warn but still work)
     if not IS_WIN:
         try:
             pip(venv, "install", "triton")
         except subprocess.CalledProcessError:
             print("[setup] triton not available — skipping (non-fatal).")
 
+    # ------------------------------------------------------------------ #
+    # onnxruntime
+    # ------------------------------------------------------------------ #
     if gpu_sm >= 70:
         print("[setup] Installing onnxruntime-gpu...")
         try:
@@ -233,54 +276,36 @@ def setup(python_exe, ext_dir, gpu_sm):
             pip(venv, "install", "onnxruntime")
     else:
         pip(venv, "install", "onnxruntime")
+
     # ------------------------------------------------------------------ #
     # Clone Hunyuan3D-2 repo
     # ------------------------------------------------------------------ #
     repo_dir = ext_dir / "Hunyuan3D-2"
     if not repo_dir.exists():
         print("[setup] Cloning Hunyuan3D-2 repo...")
-        git_target_url = "https://github.com"
         subprocess.run(
-            ["git", "clone", "--depth=1", git_target_url, str(repo_dir)],
+            ["git", "clone", "--depth=1",
+             "https://github.com/Tencent-Hunyuan/Hunyuan3D-2.git",
+             str(repo_dir)],
             check=True
         )
     else:
         print("[setup] Repo already exists, skipping clone.")
 
     # ------------------------------------------------------------------ #
-    # Setup custom_rasterizer
+    # Build custom_rasterizer BEFORE installing the package
     # ------------------------------------------------------------------ #
-    print("[setup] Setting up custom_rasterizer...")
-    local_rast_dir = ext_dir / "hunyuan3d2mv" / "texgen" / "custom_rasterizer"
-    rast_ok = False
-
-    if local_rast_dir.exists():
-        try:
-            print("[setup] Registering local custom_rasterizer containing pre-built wrapper...")
-            pip(venv, "install", str(local_rast_dir))
-            rast_ok = True
-        except Exception as e:
-            print(f"[setup] Quick registration skipped: {e}. Falling back to compilation...")
-
-    if not rast_ok:
-        rast_dir = repo_dir / "hy3dgen" / "texgen" / "custom_rasterizer"
-        print("[setup] Bundled fallback loop. Attempting local build fallback via ninja...")
-        try:
-            pip(venv, "install", "ninja")
-            rast_ok = _build_custom_rasterizer(venv_python, rast_dir)
-        except Exception as compile_err:
-            print(f"[setup] Local build runner crashed: {compile_err}")
-            rast_ok = False
-
+    rast_dir = repo_dir / "hy3dgen" / "texgen" / "custom_rasterizer"
+    rast_ok = _build_custom_rasterizer(venv_python, rast_dir)
     if not rast_ok:
         print(
-            "[setup] *** custom_rasterizer was NOT built or registered. ***\n"
+            "[setup] *** custom_rasterizer was NOT built. ***\n"
             "[setup]     Texture generation will fail until this is resolved.\n"
             "[setup]     Fix the compiler error above then reinstall the extension."
         )
 
     # ------------------------------------------------------------------ #
-    # Install hy3dgen package
+    # Install hy3dgen package (editable) — rasterizer must be built first
     # ------------------------------------------------------------------ #
     print("[setup] Installing hy3dgen package...")
     subprocess.run(
@@ -288,9 +313,23 @@ def setup(python_exe, ext_dir, gpu_sm):
         check=True
     )
     
+    # ------------------------------------------------------------------ #
+    # Pin transformers — hy3dgen requires >=4.48.0 but 4.52+ requires
+    # torch.float8_e8m0fnu which only exists in PyTorch 2.7+
+    # ------------------------------------------------------------------ #
     print("[setup] Pinning transformers to safe version...")
     pip(venv, "install", "transformers>=4.48.0,<4.52.0")
 
+    # Install the custom_rasterizer Python package (separate from the kernel .pyd)
+    print("[setup] Installing custom_rasterizer Python package...")
+    subprocess.run(
+        [str(venv_python), "-m", "pip", "install", "-e", str(rast_dir)],
+        check=True
+    )
+
+    # ------------------------------------------------------------------ #
+    # Final import verification
+    # ------------------------------------------------------------------ #
     print("[setup] Verifying custom_rasterizer import...")
     check = subprocess.run(
         [str(venv_python), "-c",
@@ -304,7 +343,9 @@ def setup(python_exe, ext_dir, gpu_sm):
         print(
             "[setup] custom_rasterizer import FAILED.\n"
             "[setup]   %s\n"
-            "[setup]   Ensure MSVC and the CUDA toolkit are installed." % stderr
+            "[setup]   Ensure MSVC (Visual Studio C++ build tools) and the CUDA\n"
+            "[setup]   toolkit matching your PyTorch build are installed, then\n"
+            "[setup]   reinstall this extension." % stderr
         )
 
     print("[setup] Done. Venv ready at: %s" % venv)
@@ -318,12 +359,13 @@ if __name__ == "__main__":
             gpu_sm=int(sys.argv[3]),
         )
     elif len(sys.argv) == 2:
-        args_dict = json.loads(sys.argv[1])
+        args = json.loads(sys.argv[1])
         setup(
-            python_exe=args_dict.get("python_exe"),
-            ext_dir=Path(args_dict.get("ext_dir")),
-            gpu_sm=int(args_dict.get("gpu_sm")),
+            python_exe=args["python_exe"],
+            ext_dir=Path(args["ext_dir"]),
+            gpu_sm=int(args["gpu_sm"]),
         )
     else:
         print("Usage: python setup.py <python_exe> <ext_dir> <gpu_sm>")
+        print('   or: python setup.py \'{"python_exe":"...","ext_dir":"...","gpu_sm":89}\'')
         sys.exit(1)
