@@ -85,15 +85,6 @@ def _find_cl_exe():
 
 
 def _build_custom_rasterizer(venv_python, rast_dir):
-    """
-    Build the custom_rasterizer C extension in-place and copy it to site-packages.
-
-    On Windows:
-      - ninja must be on PATH (installed before this call).
-      - MSVC cl.exe must be reachable; we try to locate it automatically.
-      - After build, the .pyd is copied to site-packages so the bare
-        `import custom_rasterizer` resolves regardless of cwd / sys.path.
-    """
     rast_dir = Path(rast_dir)
 
     print("[setup] Building custom_rasterizer in %s ..." % rast_dir)
@@ -209,12 +200,13 @@ def setup(python_exe, ext_dir, gpu_sm):
         torch_pkgs = ["torch==2.6.0", "torchvision==0.21.0", "torchaudio==2.6.0"]
         print("[setup] SM %d -> PyTorch 2.6.0 + CUDA 12.4" % gpu_sm)
     else:
-        torch_index = "https://download.pytorch.org/whl/cu118"
+        torch_index = "https://pytorch.org"
         torch_pkgs = ["torch==2.5.1", "torchvision==0.20.1", "torchaudio==2.5.1"]
         print("[setup] SM %d (legacy) -> PyTorch 2.5.1 + CUDA 11.8" % gpu_sm)
 
-    print("[setup] Installing PyTorch...")
+    print("[setup] Installing PyTorch using index: %s" % torch_index)
     pip(venv, "install", *torch_pkgs, "--index-url", torch_index)
+
 
     # ------------------------------------------------------------------ #
     # xformers  (the Triton warning at runtime is harmless on Windows)
