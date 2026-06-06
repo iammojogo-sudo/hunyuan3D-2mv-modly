@@ -221,10 +221,21 @@ def setup(python_exe, ext_dir, gpu_sm):
     # ------------------------------------------------------------------ #
     print("[setup] Installing xformers...")
     if gpu_sm >= 70:
-        pip(venv, "install", "xformers==0.0.29.post3", "--index-url", torch_index)
+        try:
+            # Try to grab a compatible xformers version from the custom torch index first
+            print("[setup] Attempting installation from torch index...")
+            pip(venv, "install", "xformers>=0.0.28", "--index-url", torch_index)
+        except Exception:
+            # Fallback to PyPI if the specific whl is missing on the PyTorch index
+            print("[setup] Torch index match failed. Falling back to standard PyPI registry...")
+            pip(venv, "install", "xformers>=0.0.28")
     else:
-        pip(venv, "install", "xformers==0.0.28.post2", "--index-url",
-            "https://download.pytorch.org/whl/cu118")
+        # Standard legacy fallback
+        try:
+            pip(venv, "install", "xformers>=0.0.28", "--index-url", "https://download.pytorch.org/whl/cu118")
+        except Exception:
+            pip(venv, "install", "xformers>=0.0.28")
+
 
     # ------------------------------------------------------------------ #
     # Core dependencies
