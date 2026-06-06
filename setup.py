@@ -136,7 +136,7 @@ def _build_custom_rasterizer(venv_python, rast_dir):
         print("[setup] WARNING: build reported success but no .pyd/.so found in %s." % rast_dir)
         return False
 
-    artifact = built[0]
+    artifact = built
     print("[setup] custom_rasterizer built: %s" % artifact)
 
     try:
@@ -178,36 +178,39 @@ def setup(python_exe, ext_dir, gpu_sm):
     print("[setup] Installing build prerequisites (ninja, setuptools, wheel)...")
     pip(venv, "install", "ninja", "setuptools", "wheel")
 
+    # ------------------------------------------------------------------ #
+    # PyTorch & xformers Installation Block (Using explicit commands)
+    # ------------------------------------------------------------------ #
     if gpu_sm >= 100:
-        torch_index = "https://pytorch.org"
-        torch_pkgs = ["torch>=2.7.0", "torchvision>=0.22.0", "torchaudio>=2.7.0"]
         print("[setup] SM %d (Blackwell) -> PyTorch 2.7 + CUDA 12.8" % gpu_sm)
-    elif gpu_sm >= 70:
-        torch_index = "https://pytorch.org"
-        torch_pkgs = ["torch==2.6.0", "torchvision==0.21.0", "torchaudio==2.6.0"]
-        print("[setup] SM %d -> PyTorch 2.6.0 + CUDA 12.4" % gpu_sm)
-    else:
-        torch_index = "https://pytorch.org"
-        torch_pkgs = ["torch==2.5.1", "torchvision==0.20.1", "torchaudio==2.5.1"]
-        print("[setup] SM %d (legacy) -> PyTorch 2.5.1 + CUDA 11.8" % gpu_sm)
-
-    print("[setup] Installing PyTorch using index: %s" % torch_index)
-    pip(venv, "install", *torch_pkgs, "--index-url", torch_index)
-
-    print("[setup] Installing xformers...")
-    if gpu_sm >= 70:
-        try:
-            print("[setup] Attempting installation from torch index...")
-            pip(venv, "install", "xformers>=0.0.28", "--index-url", torch_index)
-        except Exception:
-            print("[setup] Torch index match failed. Falling back to standard PyPI registry...")
-            pip(venv, "install", "xformers>=0.0.28")
-    else:
+        pip(venv, "install", "torch>=2.7.0", "torchvision>=0.22.0", "torchaudio>=2.7.0", "--index-url", "https://pytorch.org")
+        print("[setup] Installing xformers...")
         try:
             pip(venv, "install", "xformers>=0.0.28", "--index-url", "https://pytorch.org")
         except Exception:
             pip(venv, "install", "xformers>=0.0.28")
 
+    elif gpu_sm >= 70:
+        print("[setup] SM %d -> PyTorch 2.6.0 + CUDA 12.4" % gpu_sm)
+        pip(venv, "install", "torch==2.6.0", "torchvision==0.21.0", "torchaudio==2.6.0", "--index-url", "https://pytorch.org")
+        print("[setup] Installing xformers...")
+        try:
+            pip(venv, "install", "xformers>=0.0.28", "--index-url", "https://pytorch.org")
+        except Exception:
+            pip(venv, "install", "xformers>=0.0.28")
+
+    else:
+        print("[setup] SM %d (legacy) -> PyTorch 2.5.1 + CUDA 11.8" % gpu_sm)
+        pip(venv, "install", "torch==2.5.1", "torchvision==0.20.1", "torchaudio==2.5.1", "--index-url", "https://pytorch.org")
+        print("[setup] Installing xformers...")
+        try:
+            pip(venv, "install", "xformers>=0.0.28", "--index-url", "https://pytorch.org")
+        except Exception:
+            pip(venv, "install", "xformers>=0.0.28")
+
+    # ------------------------------------------------------------------ #
+    # Core dependencies
+    # ------------------------------------------------------------------ #
     print("[setup] Installing core dependencies...")
     pip(venv, "install",
         "accelerate", "omegaconf", "einops", "Pillow", "numpy", "scipy",
@@ -230,6 +233,9 @@ def setup(python_exe, ext_dir, gpu_sm):
             pip(venv, "install", "onnxruntime")
     else:
         pip(venv, "install", "onnxruntime")
+    # ------------------------------------------------------------------ #
+    # Clone Hunyuan3D-2 repo
+    # ------------------------------------------------------------------ #
     repo_dir = ext_dir / "Hunyuan3D-2"
     if not repo_dir.exists():
         print("[setup] Cloning Hunyuan3D-2 repo...")
@@ -241,6 +247,9 @@ def setup(python_exe, ext_dir, gpu_sm):
     else:
         print("[setup] Repo already exists, skipping clone.")
 
+    # ------------------------------------------------------------------ #
+    # Setup custom_rasterizer
+    # ------------------------------------------------------------------ #
     print("[setup] Setting up custom_rasterizer...")
     local_rast_dir = ext_dir / "hunyuan3d2mv" / "texgen" / "custom_rasterizer"
     rast_ok = False
@@ -270,6 +279,9 @@ def setup(python_exe, ext_dir, gpu_sm):
             "[setup]     Fix the compiler error above then reinstall the extension."
         )
 
+    # ------------------------------------------------------------------ #
+    # Install hy3dgen package
+    # ------------------------------------------------------------------ #
     print("[setup] Installing hy3dgen package...")
     subprocess.run(
         [str(venv_python), "-m", "pip", "install", "-e", str(repo_dir)],
@@ -299,24 +311,14 @@ def setup(python_exe, ext_dir, gpu_sm):
 
 
 if __name__ == "__main__":
-    sys_args = list(sys.argv)
-    
-    if len(sys_args) >= 4:
-        script_name = sys_args.pop(0)
-        param_python = sys_args.pop(0)
-        param_ext_dir = sys_args.pop(0)
-        param_gpu_sm = sys_args.pop(0)
-        
+    if len(sys.argv) >= 4:
         setup(
-            python_exe=param_python,
-            ext_dir=Path(param_ext_dir),
-            gpu_sm=int(param_gpu_sm),
+            python_exe=sys.argv[1],
+            ext_dir=Path(sys.argv[2]),
+            gpu_sm=int(sys.argv[3]),
         )
-    elif len(sys_args) == 2:
-        script_name = sys_args.pop(0)
-        json_string = sys_args.pop(0)
-        args_dict = json.loads(json_string)
-        
+    elif len(sys.argv) == 2:
+        args_dict = json.loads(sys.argv[1])
         setup(
             python_exe=args_dict.get("python_exe"),
             ext_dir=Path(args_dict.get("ext_dir")),
