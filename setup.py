@@ -293,19 +293,43 @@ def setup(python_exe, ext_dir, gpu_sm):
         print("[setup] Repo already exists, skipping clone.")
 
     # ------------------------------------------------------------------ #
-    # Build custom_rasterizer BEFORE installing the package
+    # Setup custom_rasterizer (Check for bundled .pyd wrapper first)
     # ------------------------------------------------------------------ #
-    rast_dir = repo_dir / "hy3dgen" / "texgen" / "custom_rasterizer"
-    rast_ok = _build_custom_rasterizer(venv_python, rast_dir)
+    print("[setup] Setting up custom_rasterizer...")
+    
+    # Path to where your bundled .pyd and its setup files live
+    local_rast_dir = Path("./hunyuan3d2mv/texgen/custom_rasterizer")
+    rast_ok = False
+
+    if local_rast_dir.exists():
+        try:
+            print("[setup] Registering local custom_rasterizer containing pre-built .pyd wrapper...")
+            pip(venv, "install", str(local_rast_dir))
+            rast_ok = True
+        except Exception as e:
+            print(f"[setup] Quick registration skipped: {e}. Falling back to repository compilation...")
+
+    # Fallback compilation loop ONLY if the pre-built .pyd failed or wasn't found
+    if not rast_ok:
+        rast_dir = repo_dir / "hy3dgen" / "texgen" / "custom_rasterizer"
+        print("[setup] Bundled .pyd unavailable/incompatible. Attempting local build fallback via ninja...")
+        try:
+            pip(venv, "install", "ninja")
+            # Using your existing helper function to attempt a source compilation
+            rast_ok = _build_custom_rasterizer(venv_python, rast_dir)
+        except Exception as compile_err:
+            print(f"[setup] Local build runner crashed: {compile_err}")
+            rast_ok = False
+
     if not rast_ok:
         print(
-            "[setup] *** custom_rasterizer was NOT built. ***\n"
+            "[setup] *** custom_rasterizer was NOT built or registered. ***\n"
             "[setup]     Texture generation will fail until this is resolved.\n"
             "[setup]     Fix the compiler error above then reinstall the extension."
         )
 
     # ------------------------------------------------------------------ #
-    # Install hy3dgen package (editable) — rasterizer must be built first
+    # Install hy3dgen package (editable)
     # ------------------------------------------------------------------ #
     print("[setup] Installing hy3dgen package...")
     subprocess.run(
@@ -314,8 +338,7 @@ def setup(python_exe, ext_dir, gpu_sm):
     )
     
     # ------------------------------------------------------------------ #
-    # Pin transformers — hy3dgen requires >=4.48.0 but 4.52+ requires
-    # torch.float8_e8m0fnu which only exists in PyTorch 2.7+
+    # Pin transformers
     # ------------------------------------------------------------------ #
     print("[setup] Pinning transformers to safe version...")
     pip(venv, "install", "transformers>=4.48.0,<4.52.0")
