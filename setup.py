@@ -322,19 +322,19 @@ def setup(python_exe, ext_dir, gpu_sm):
 
     print("[setup] Setting up custom_rasterizer...")
     try:
-        # 1. First attempt: Look for community precompiled wheels from Kijai or others matching their system
-        # Change this link to a hosted repository or your own bundled wheel folder
-        print("[setup] Trying to install pre-compiled wheel binary...")
-        pip(venv, "install", "https://github.com")
-    except Exception:
+        # Since the .pyd is present, this will link/copy the package instantly with zero compilation
+        print("[setup] Registering local custom_rasterizer containing pre-built .pyd wrapper...")
+        pip(venv, "install", "./hunyuan3d2mv/texgen/custom_rasterizer")
+    except Exception as e:
+        # Fallback if something goes wrong with the path tracking
+        print(f"[setup] Quick registration skipped: {e}. Attempting local build fallback via ninja...")
         try:
-            # 2. Second attempt: Install ninja first to see if that unblocks the local environment build
-            print("[setup] Wheel install skipped. Attempting clean local compile via ninja...")
             pip(venv, "install", "ninja")
             pip(venv, "install", "./hunyuan3d2mv/texgen/custom_rasterizer")
-        except Exception as e:
-            print(f"[setup] CRITICAL ERROR: Could not compile custom_rasterizer source code directly: {e}")
-            print("[setup] Please ensure Microsoft Visual C++ Build Tools are installed on your Windows system.")
+        except Exception as compile_err:
+            print(f"[setup] CRITICAL ERROR: Local build failed: {compile_err}")
+            print("[setup] Please ensure Python 3.11 and Microsoft Visual C++ Build Tools match your system.")
+
 
 
     # ------------------------------------------------------------------ #
