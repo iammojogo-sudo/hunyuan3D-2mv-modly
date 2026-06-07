@@ -137,7 +137,7 @@ def setup(python_exe, ext_dir, gpu_sm):
     # ------------------------------------------------------------------ #
     if gpu_sm >= 100:
         torch_index = "https://download.pytorch.org/whl/cu128"
-        torch_pkgs = ["torch>=2.7.0", "torchvision>=0.22.0", "torchaudio>=2.7.0"]
+        torch_pkgs = ["torch==2.7.0", "torchvision==0.22.0", "torchaudio==2.7.0"]
         print("[setup] SM %d (Blackwell) -> PyTorch 2.7 + CUDA 12.8" % gpu_sm)
     elif gpu_sm >= 70:
         torch_index = "https://download.pytorch.org/whl/cu124"
@@ -152,14 +152,24 @@ def setup(python_exe, ext_dir, gpu_sm):
     pip(venv, "install", *torch_pkgs, "--index-url", torch_index)
 
     # ------------------------------------------------------------------ #
-    # xformers  (the Triton warning at runtime is harmless on Windows)
+    # xformers (optional accelerator). Non-fatal: if no wheel is published
+    # for this torch/CUDA combo, fall back to PyTorch's built-in attention
+    # (SDPA) instead of failing the whole install. generator.py never imports
+    # xformers directly, so skipping it is safe.
     # ------------------------------------------------------------------ #
-    print("[setup] Installing xformers...")
-    if gpu_sm >= 70:
-        pip(venv, "install", "xformers==0.0.29.post3", "--index-url", torch_index)
+    if gpu_sm >= 100:
+        xformers_pkg, xformers_index = "xformers==0.0.30", torch_index
+    elif gpu_sm >= 70:
+        xformers_pkg, xformers_index = "xformers==0.0.29.post3", torch_index
     else:
-        pip(venv, "install", "xformers==0.0.28.post2", "--index-url",
-            "https://download.pytorch.org/whl/cu118")
+        xformers_pkg, xformers_index = "xformers==0.0.28.post2", "https://download.pytorch.org/whl/cu118"
+
+    print("[setup] Installing %s (optional)..." % xformers_pkg)
+    try:
+        pip(venv, "install", xformers_pkg, "--index-url", xformers_index)
+    except subprocess.CalledProcessError:
+        print("[setup] xformers unavailable for this build — skipping (non-fatal).")
+        print("[setup]   PyTorch's built-in attention (SDPA) will be used instead.")
 
     # ------------------------------------------------------------------ #
     # Core dependencies
@@ -167,6 +177,11 @@ def setup(python_exe, ext_dir, gpu_sm):
     print("[setup] Installing core dependencies...")
     pip(venv, "install",
         "accelerate",
+        # transformers 5.x imports torch.float8_e8m0fnu, a dtype that only
+        # exists in torch >= 2.7 — it crashes on the torch 2.6 (cu124) build.
+        # Pin to 4.x, which has every class hy3dgen needs and works on all
+        # three torch branches. Co-resolved here so hf_hub/tokenizers stay sane.
+        "transformers<5",
         "omegaconf",
         "einops",
         "Pillow",
