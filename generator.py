@@ -354,25 +354,86 @@ class Hunyuan3D2mvGenerator(BaseGenerator):
             else:
                 print("[Hunyuan3D2mvGenerator] WARNING: Could not resolve CUDA_HOME automatically")
 
-            # Auto-detect cl.exe (MSVC) if not already on PATH
-            if os.name == "nt":
-                import shutil as _shutil
-                if not _shutil.which("cl"):
-                    for vs_base in [
+            # Set up the FULL MSVC build environment (INCLUDE/LIB/LIBPATH/PATH),
+            # not just cl.exe — cl alone on PATH can't compile without those vars.
+            # Uses vswhere + vcvars64.bat so every edition works the same way:
+            # VS 2019/2022/2026 Community/Pro/Enterprise *or* standalone Build Tools.
+            def _setup_msvc_env():
+                if os.name != "nt":
+                    return
+                import subprocess
+                # Already inside a developer environment? Nothing to do.
+                if _shutil.which("cl") and os.environ.get("INCLUDE"):
+                    print("[Hunyuan3D2mvGenerator] MSVC environment already active.")
+                    return
+
+                vcvars = None
+                # 1) vswhere — finds any VS / Build Tools install with the C++ toolset
+                pf86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
+                vswhere = Path(pf86) / "Microsoft Visual Studio" / "Installer" / "vswhere.exe"
+                if vswhere.exists():
+                    try:
+                        out = subprocess.run(
+                            [str(vswhere), "-latest", "-prerelease", "-products", "*",
+                             "-requires", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+                             "-property", "installationPath"],
+                            capture_output=True, text=True,
+                        )
+                        lines = [ln for ln in out.stdout.splitlines() if ln.strip()]
+                        if lines:
+                            cand = Path(lines[0]) / "VC" / "Auxiliary" / "Build" / "vcvars64.bat"
+                            if cand.is_file():
+                                vcvars = cand
+                    except Exception as exc:
+                        print("[Hunyuan3D2mvGenerator] vswhere lookup failed: %s" % exc)
+
+                # 2) Fallback: scan common install roots for vcvars64.bat
+                if vcvars is None:
+                    for vs_base in (
                         r"C:\Program Files\Microsoft Visual Studio",
                         r"C:\Program Files (x86)\Microsoft Visual Studio",
-                    ]:
+                    ):
                         vs_p = Path(vs_base)
                         if vs_p.exists():
-                            cl_hits = [
-                                p for p in vs_p.rglob("cl.exe")
-                                if "x64" in str(p) or "amd64" in str(p).lower()
-                            ]
-                            if cl_hits:
-                                cl_dir = str(cl_hits[0].parent)
-                                os.environ["PATH"] = cl_dir + os.pathsep + os.environ.get("PATH", "")
-                                print("[Hunyuan3D2mvGenerator] Auto-found cl.exe: %s" % cl_hits[0])
+                            hits = list(vs_p.rglob("vcvars64.bat"))
+                            if hits:
+                                vcvars = hits[0]
                                 break
+
+                if vcvars is None:
+                    print(
+                        "[Hunyuan3D2mvGenerator] WARNING: no MSVC vcvars64.bat found.\n"
+                        "  Install the 'Desktop development with C++' workload (Visual\n"
+                        "  Studio) or the standalone Build Tools for Visual Studio, then retry."
+                    )
+                    return
+
+                # Import the developer environment: run vcvars64.bat in a child cmd
+                # and copy the resulting variables back into this process. The child
+                # inherits our env (incl. CUDA_HOME set above), so nothing is lost.
+                try:
+                    dump = subprocess.run(
+                        ["cmd.exe", "/s", "/c",
+                         '""%s" >nul 2>&1 && set"' % str(vcvars)],
+                        capture_output=True, text=True,
+                    )
+                    applied = 0
+                    for line in dump.stdout.splitlines():
+                        if "=" in line:
+                            key, val = line.split("=", 1)
+                            if key and val:
+                                os.environ[key] = val
+                                applied += 1
+                    if _shutil.which("cl") and os.environ.get("INCLUDE"):
+                        print("[Hunyuan3D2mvGenerator] MSVC environment loaded from %s (%d vars)."
+                              % (vcvars, applied))
+                    else:
+                        print("[Hunyuan3D2mvGenerator] WARNING: ran vcvars64.bat but cl/INCLUDE "
+                              "still not set — the C++ toolset may be incomplete.")
+                except Exception as exc:
+                    print("[Hunyuan3D2mvGenerator] Could not load MSVC environment: %s" % exc)
+
+            _setup_msvc_env()
 
             cpp_sources = [
                 str(kernel_dir / "rasterizer.cpp"),
