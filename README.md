@@ -1,3 +1,5 @@
+TRY TO GET VISUAL STUDIO BUILD TOOLS for VISUAL STUDIO 20187-2022 (2022) preferred for cu128: https://aka.ms/vs/17/release/vs_buildtools.exe
+
 🛠️ Troubleshooting & Requirements
 🐍 If Python is missing:
 If you see "Python was not found", run this command, then restart PowerShell:
