@@ -5,7 +5,8 @@ Things that install to check versions specific to this extension: I currently ha
 Ive tested two different computers, and both setup successful.
 
 Just a quick setup guide layout: 
-<img width="1344" height="837" alt="image" src="https://github.com/user-attachments/assets/721c906c-dc7a-4c9b-b74f-c394ec702e77" />
+<img width="1257" height="829" alt="image" src="https://github.com/user-attachments/assets/a3c2e1de-0adc-4f1e-aba3-0bf5f6ae5a21" />
+
 
 
 
