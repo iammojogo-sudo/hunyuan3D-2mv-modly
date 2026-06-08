@@ -1,5 +1,16 @@
 TRY TO GET VISUAL STUDIO BUILD TOOLS for VISUAL STUDIO 2017-2022 (2022) preferred for cu128: https://aka.ms/vs/17/release/vs_buildtools.exe
 
+
+Just a quick setup guide layout: 
+<img width="1344" height="837" alt="image" src="https://github.com/user-attachments/assets/721c906c-dc7a-4c9b-b74f-c394ec702e77" />
+
+
+
+
+
+
+
+
 🛠️ Troubleshooting & Requirements
 🐍 If Python is missing:
 If you see "Python was not found", run this command, then restart PowerShell:
@@ -30,3 +41,7 @@ Updates: Currently, multi-image input is being patched. Until then, the system d
 
 
 -If you get a compilation error while building the C++ extension custom_rasterizer, please contact me on discord via the community extensions tab as this is likely due to running the app instead of going through the launch.bat directly. I can fix that if anyone has issues with that. 
+
+
+
+
