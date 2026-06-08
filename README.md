@@ -6,7 +6,7 @@ Ive tested two different computers, and both setup successful.
 
 Just a quick setup guide layout: 
 <img width="1257" height="829" alt="image" src="https://github.com/user-attachments/assets/a3c2e1de-0adc-4f1e-aba3-0bf5f6ae5a21" />
-
+CHOOSE YOUR PATH :P YOU DONT HAVE TO HAVE ALL THOSE CONNECTED, THOSE ARE JUST THE POSSIBILITIES. PLAY AROUND WITH IT :)
 
 
 
