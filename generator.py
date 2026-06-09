@@ -105,6 +105,16 @@ class Hunyuan3D2mvGenerator(BaseGenerator):
     VRAM_GB       = 8
     MODEL_VARIANT = "hunyuan3d-dit-v2-mv-turbo"
 
+    # Background-removal (matting) model used by rembg before shape/texture.
+    # Hunyuan ships rembg's default 'u2net', which leaves background on busy or
+    # low-contrast images (causing the "box around the mesh" result). These cut
+    # far cleaner — same rembg dependency, just a stronger model, downloaded
+    # once on first use:
+    #   'isnet-general-use'  - big upgrade over u2net, light + fast (~170 MB)
+    #   'birefnet-general'   - best quality on hard scenes, heavier/slower (~1 GB)
+    # If the chosen model can't be fetched, we fall back to 'u2net' automatically.
+    BG_REMOVER_MODEL = "isnet-general-use"
+
     # ------------------------------------------------------------------
     # Download checks
     # ------------------------------------------------------------------
@@ -165,12 +175,18 @@ class Hunyuan3D2mvGenerator(BaseGenerator):
         self._ensure_hy3dgen_on_path()
 
         import torch
-        from hy3dgen.rembg import BackgroundRemover
+        from rembg import new_session
         from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline
 
         self._device               = "cuda" if torch.cuda.is_available() else "cpu"
         self._dtype                = torch.float16 if self._device == "cuda" else torch.float32
-        self._rembg                = BackgroundRemover()
+        try:
+            self._rembg_session = new_session(self.BG_REMOVER_MODEL)
+            print("[Hunyuan3D2mvGenerator] Background remover: %s" % self.BG_REMOVER_MODEL)
+        except Exception as exc:
+            print("[Hunyuan3D2mvGenerator] Could not load '%s' (%s) — falling back to u2net."
+                  % (self.BG_REMOVER_MODEL, exc))
+            self._rembg_session = new_session("u2net")
         self._loaded_variant       = None
         self._pipeline             = None
         self._loaded_paint_variant = None
@@ -941,8 +957,12 @@ class Hunyuan3D2mvGenerator(BaseGenerator):
         return self._remove_bg(img) if remove_bg else img
 
     def _remove_bg(self, img):
+        from rembg import remove
         try:
-            return self._rembg(img)
+            # bgcolor transparent — identical output convention to Hunyuan's
+            # remover, so the pipeline sees the same format; only the matting
+            # model (mask quality) differs.
+            return remove(img, session=self._rembg_session, bgcolor=[255, 255, 255, 0])
         except Exception as exc:
             print("[Hunyuan3D2mvGenerator] Background removal failed, using original: %s" % exc)
             return img
