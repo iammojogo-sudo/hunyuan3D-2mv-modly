@@ -282,7 +282,7 @@
         {
           "id": "seed",
           "label": "Seed",
-          "type": "int",
+          "type": "seed",
           "default": 42,
           "min": 0,
           "max": 4294967295,
@@ -310,25 +310,6 @@
         "hunyuan3d-dit-v2-0-fast/*"
       ],
       "params_schema": [
-        {
-          "id": "front_image_path",
-          "label": "Front View Image",
-          "type": "string",
-          "default": "",
-          "pickerIntent": "image",
-          "filters": [
-            {
-              "name": "Images",
-              "extensions": [
-                "png",
-                "jpg",
-                "jpeg",
-                "webp"
-              ]
-            }
-          ],
-          "tooltip": "Required. The front view image used to drive texture generation."
-        },
         {
           "id": "texture_variant",
           "label": "Texture Model",
@@ -362,63 +343,6 @@
             }
           ],
           "tooltip": "Run rembg on reference images before texturing."
-        },
-        {
-          "id": "left_image_path",
-          "label": "Left View Image",
-          "type": "string",
-          "default": "",
-          "pickerIntent": "image",
-          "filters": [
-            {
-              "name": "Images",
-              "extensions": [
-                "png",
-                "jpg",
-                "jpeg",
-                "webp"
-              ]
-            }
-          ],
-          "tooltip": "Optional. Extra views improve texture coverage."
-        },
-        {
-          "id": "back_image_path",
-          "label": "Back View Image",
-          "type": "string",
-          "default": "",
-          "pickerIntent": "image",
-          "filters": [
-            {
-              "name": "Images",
-              "extensions": [
-                "png",
-                "jpg",
-                "jpeg",
-                "webp"
-              ]
-            }
-          ],
-          "tooltip": "Optional. Extra views improve texture coverage."
-        },
-        {
-          "id": "right_image_path",
-          "label": "Right View Image",
-          "type": "string",
-          "default": "",
-          "pickerIntent": "image",
-          "filters": [
-            {
-              "name": "Images",
-              "extensions": [
-                "png",
-                "jpg",
-                "jpeg",
-                "webp"
-              ]
-            }
-          ],
-          "tooltip": "Optional. Extra views improve texture coverage."
         },
         {
           "id": "camera_mode",
