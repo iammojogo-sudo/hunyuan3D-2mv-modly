@@ -579,12 +579,15 @@ class Hunyuan3D2mvGenerator(BaseGenerator):
             % (variant, steps, octree_res, guidance_scale, num_chunks, box_v, mc_level, remove_bg, seed)
         )
 
-        # Diagnostic: log exactly what Modly passed for each view path
-        for view_name in ("left", "back", "right"):
-            raw_path = params.get("%s_image_path" % view_name)
-            raw_data = params.get("%s_image" % view_name)
-            print("[Hunyuan3D2mvGenerator] param %s_image_path=%r  %s_image present=%s"
-                  % (view_name, raw_path, view_name, bool(raw_data)))
+        # Map images wired to the extra input handles (input-1/2/3), delivered by
+        # the run store as params["extra_image_paths"], onto the side views.
+        # A manually-set view path always wins. Order: 0->left, 1->back, 2->right.
+        extra = params.get("extra_image_paths") or []
+        print("[Hunyuan3D2mvGenerator] extra_image_paths=%r" % (extra,))
+        for i, view_name in enumerate(("left", "back", "right")):
+            if i < len(extra) and extra[i] and not params.get("%s_image_path" % view_name):
+                params["%s_image_path" % view_name] = extra[i]
+                print("[Hunyuan3D2mvGenerator] view %s <- %s" % (view_name, extra[i]))
 
         self._report(progress_cb, 5, "Preprocessing front view...")
         front_image = self._preprocess_bytes(image_bytes, remove_bg=remove_bg)
