@@ -1,3 +1,5 @@
+HIGHLY MODIFIED Hunyuan3D-2mv model for Modly. 
+
 TRY TO GET VISUAL STUDIO BUILD TOOLS for VISUAL STUDIO 2017-2022 (2022) preferred for cu128: https://aka.ms/vs/17/release/vs_buildtools.exe
 
 Things that install to check versions specific to this extension: I currently have Python 3.11.9, vs build tools 17.14.33, CUDA build tool: Cuda compilation tools, release 12.9, V12.9.86, and Node.js: v25.9.0 On another computer I have Python 3.12, vs build tools 18.4.3(2026 even which shouldnt even work), no Cuda build tools, and Node.js: 26.2.0 if that helps anyone who has issues with setup.py or installing the extension.
